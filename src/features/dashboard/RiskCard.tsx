@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+
 import { FiActivity } from 'react-icons/fi';
 import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
-import { fetchRiskScore } from '../../services/safetyService';
+import { useSafeWalk } from '../../hooks/useSafeWalk';
 import { useLiveLocation } from '../../hooks/useLiveLocation';
 import type { RiskScore } from '../../types';
 import { timeAgo } from '../../utils/format';
@@ -16,20 +16,37 @@ const levelColor: Record<RiskScore['level'], string> = {
 };
 
 export default function RiskCard() {
-  const [risk, setRisk] = useState<RiskScore | null>(null);
   const { coords } = useLiveLocation();
+  const { isActive, riskScore, isAnalyzing, startWalk, stopWalk } = useSafeWalk();
 
-  useEffect(() => {
-    fetchRiskScore({ location: coords }).then(setRisk);
-  }, [coords]);
-
-  if (!risk) {
+  if (!isActive) {
     return (
-      <Card className="flex items-center justify-center min-h-[180px]">
-        <Loader label="Reading current risk…" />
+      <Card className="flex flex-col items-center justify-center min-h-[180px] gap-4">
+        <div className="flex items-center gap-2 text-sky-300/80 text-xs uppercase tracking-wide">
+          <FiActivity size={13} /> Live Risk Analysis
+        </div>
+        <p className="text-xs text-sky-100/70 text-center max-w-[200px]">
+          Turn on Safe Walk to continuously analyze your route.
+        </p>
+        <button
+          onClick={() => startWalk(coords)}
+          className="px-5 py-2.5 bg-teal-500/20 text-teal-300 rounded-xl hover:bg-teal-500/30 transition-colors text-sm font-medium"
+        >
+          Start Safe Walk
+        </button>
       </Card>
     );
   }
+
+  if (isAnalyzing || !riskScore) {
+    return (
+      <Card className="flex items-center justify-center min-h-[180px]">
+        <Loader label="Analyzing telemetry…" />
+      </Card>
+    );
+  }
+
+  const risk = riskScore;
 
   const circumference = 2 * Math.PI * 42;
   const offset = circumference - (risk.score / 100) * circumference;
@@ -41,7 +58,15 @@ export default function RiskCard() {
         <div className="flex items-center gap-2 text-sky-300/80 text-xs uppercase tracking-wide">
           <FiActivity size={13} /> Risk score
         </div>
-        <span className="text-[11px] text-sky-400/70">{timeAgo(risk.updatedAt)}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-sky-400/70">{timeAgo(risk.updatedAt)}</span>
+          <button 
+            onClick={stopWalk}
+            className="text-[10px] uppercase font-bold tracking-wider text-rose-400/80 hover:text-rose-400 transition-colors"
+          >
+            Stop
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-6">
