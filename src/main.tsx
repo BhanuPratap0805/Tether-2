@@ -16,7 +16,7 @@ if (!googleClientId) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <GoogleOAuthProvider clientId={googleClientId || 'dummy_client_id'}>
+    <GoogleOAuthProvider clientId={googleClientId || 'dummy_client_id_for_local_dev'}>
       <App />
     </GoogleOAuthProvider>
   </StrictMode>,
