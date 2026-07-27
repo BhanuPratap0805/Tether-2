@@ -18,8 +18,18 @@ export interface VoiceDistressState {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** RMS amplitude (0-1) that must be exceeded to wake up the keyword spotter. */
-const VOLUME_GATE_THRESHOLD = 0.08;
+/**
+ * RMS amplitude (0–1) that must be exceeded for a volume spike to count.
+ * 0.22 targets screams/shouts and ignores ambient speech, music, and car horns.
+ * The Speech API is the primary signal; volume is a secondary "pure scream" heuristic.
+ */
+const VOLUME_GATE_THRESHOLD = 0.22;
+
+/**
+ * Minimum milliseconds between consecutive volume-based detections.
+ * Ensures a single sustained scream counts as ONE event, not 60+ per second.
+ */
+const MIN_VOLUME_SPIKE_GAP_MS = 3_000;
 
 /**
  * Distress keywords (lowercase). Covers English + Hindi phonetic equivalents.
@@ -168,6 +178,9 @@ export function useVoiceDistressDetection(
   const detectionTimestampsRef = useRef<number[]>([]);
   const cooldownRef = useRef(false);
   const onDistressRef = useRef(onDistressDetected);
+  // Volume gate state — tracks rising-edge and per-spike throttle
+  const wasAboveThresholdRef = useRef(false);
+  const lastVolumeSpikeRef = useRef<number>(0);
 
   // Keep callback ref fresh
   useEffect(() => {
@@ -264,6 +277,15 @@ export function useVoiceDistressDetection(
   }, [recordDetection]);
 
   // ── Web Audio volume-gate loop ────────────────────────────────────────────
+  //
+  // Design rationale:
+  //   rAF fires ~60×/s. Without protection, one car horn fills detectionTimestamps
+  //   with 60+ entries in a second, instantly satisfying DETECTIONS_REQUIRED.
+  //
+  //   Fix: only fire recordDetection() on the RISING EDGE (quiet→loud transition)
+  //   AND enforce a MIN_VOLUME_SPIKE_GAP_MS cooldown between volume events.
+  //   This means one sustained scream = 1 detection, not 60.
+  //   Speech API keyword matches are unthrottled and remain the primary signal.
 
   const startVolumeGate = useCallback(() => {
     const analyser = analyserRef.current;
@@ -272,14 +294,20 @@ export function useVoiceDistressDetection(
     const loop = () => {
       if (!isListeningRef.current) return;
       const rms = getRmsVolume(analyser);
+      const isAbove = rms > VOLUME_GATE_THRESHOLD;
 
-      if (rms > VOLUME_GATE_THRESHOLD) {
-        // Volume spike — the speech recogniser is already running and will
-        // pick up the word. We also record a "potential" detection here so
-        // pure screams (non-speech) can still trigger via multiple spikes.
-        recordDetection();
+      // Only fire on the RISING EDGE: transition from below → above threshold
+      if (isAbove && !wasAboveThresholdRef.current) {
+        const now = Date.now();
+        const msSinceLast = now - lastVolumeSpikeRef.current;
+        if (msSinceLast > MIN_VOLUME_SPIKE_GAP_MS) {
+          lastVolumeSpikeRef.current = now;
+          recordDetection();
+        }
       }
 
+      // Track whether we were above threshold last frame
+      wasAboveThresholdRef.current = isAbove;
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
