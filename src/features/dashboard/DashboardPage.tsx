@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import LiveMap from '../map/LiveMap';
 import AIInsights from './AIInsights';
 import GuardianList from './GuardianList';
@@ -10,10 +11,21 @@ import RecentAlerts from './RecentAlerts';
 import RiskCard from './RiskCard';
 import StatisticsCards from './StatisticsCards';
 import { fetchTimeline } from '../../services/safetyService';
+import VoiceIndicator from '../../components/emergency/VoiceIndicator';
+import { useVoiceDistressDetection } from '../../hooks/useVoiceDistressDetection';
 import type { TimelineEvent } from '../../types';
 
 export default function DashboardPage() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const navigate = useNavigate();
+
+  // When distress is detected from dashboard, navigate to emergency page
+  const onDistress = useCallback(() => {
+    navigate('/emergency');
+  }, [navigate]);
+
+  const { status: voiceStatus, error: voiceError, startListening, stopListening } =
+    useVoiceDistressDetection(onDistress, true);
 
   useEffect(() => {
     fetchTimeline().then(setTimeline);
@@ -22,6 +34,16 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-6 pb-10">
       <StatisticsCards />
+
+      {/* Compact voice monitoring strip */}
+      <div className="-mt-2">
+        <VoiceIndicator
+          status={voiceStatus}
+          error={voiceError}
+          onStart={startListening}
+          onStop={stopListening}
+        />
+      </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 flex flex-col gap-6">
