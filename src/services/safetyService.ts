@@ -1,17 +1,52 @@
+import { GoogleGenAI, Type } from '@google/genai';
 import { mockDelay } from './apiClient';
 import type { AIInsight, AlertRecord, Coordinates, RiskScore, SafePlace, TimelineEvent } from '../types';
 
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || 'fake' });
+const hasApiKey = Boolean(import.meta.env.VITE_GEMINI_API_KEY);
+
 /** GET /risk */
-export async function fetchRiskScore(): Promise<RiskScore> {
-  return mockDelay(
-    {
-      score: 24,
-      level: 'low',
-      factors: ['Well-lit route detected', 'Familiar neighbourhood', 'No unusual movement patterns'],
-      updatedAt: new Date().toISOString(),
-    },
-    550,
-  );
+export async function fetchRiskScore(contextData?: Record<string, any>): Promise<RiskScore> {
+  const fallbackScore: RiskScore = {
+    score: 50,
+    level: 'moderate',
+    factors: ['AI Prediction Unavailable', 'Please check Gemini API Key'],
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (!hasApiKey) return fallbackScore;
+
+  try {
+    const prompt = `You are a personal safety AI. Analyze the current context and generate a risk score.
+Context:
+Time: ${new Date().toLocaleTimeString()}
+Location (if any): ${JSON.stringify(contextData?.location || 'Unknown')}
+Other: ${JSON.stringify(contextData || {})}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            score: { type: Type.INTEGER, description: '0 to 100 representing danger level' },
+            level: { type: Type.STRING, enum: ['low', 'moderate', 'elevated', 'high'] },
+            factors: { type: Type.ARRAY, items: { type: Type.STRING }, description: '2 to 3 factors explaining the score' },
+          },
+          required: ['score', 'level', 'factors'],
+        },
+      },
+    });
+
+    if (!response.text) return fallbackScore;
+    const parsed = JSON.parse(response.text);
+    return { ...parsed, updatedAt: new Date().toISOString() };
+  } catch (error) {
+    console.error('Gemini API error (RiskScore):', error);
+    return fallbackScore;
+  }
 }
 
 /** GET /timeline */
@@ -44,14 +79,50 @@ export async function fetchSafePlaces(origin?: Coordinates): Promise<SafePlace[]
 }
 
 /** Rotating reassuring / advisory AI insights shown on the dashboard. */
-export async function fetchAIInsights(): Promise<AIInsight[]> {
-  return mockDelay(
-    [
-      { id: 'ai1', tone: 'reassuring', message: 'Your evening route has been steady for the last 3 weeks. Everything looks normal tonight.', createdAt: new Date().toISOString() },
-      { id: 'ai2', tone: 'advisory', message: 'Rain is expected after 9 PM — visibility on your usual path may drop. Consider the lit route via MG Road.', createdAt: new Date().toISOString() },
-    ],
-    500,
-  );
+export async function fetchAIInsights(contextData?: Record<string, any>): Promise<AIInsight[]> {
+  const fallbackInsights: AIInsight[] = [
+    { id: 'ai_err_1', tone: 'urgent', message: 'AI insights are currently unavailable. Please check your Gemini API connection.', createdAt: new Date().toISOString() },
+  ];
+
+  if (!hasApiKey) return fallbackInsights;
+
+  try {
+    const prompt = `You are a personal safety AI. Generate 2 personalized safety insights for a user based on their context. Make one reassuring and one advisory.
+Context:
+Time: ${new Date().toLocaleTimeString()}
+Location (if any): ${JSON.stringify(contextData?.location || 'Unknown')}
+Other: ${JSON.stringify(contextData || {})}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              tone: { type: Type.STRING, enum: ['reassuring', 'advisory', 'urgent'] },
+              message: { type: Type.STRING, description: 'A short 1-2 sentence personalized insight' },
+            },
+            required: ['tone', 'message'],
+          },
+        },
+      },
+    });
+
+    if (!response.text) return fallbackInsights;
+    const parsed = JSON.parse(response.text) as Omit<AIInsight, 'id' | 'createdAt'>[];
+    return parsed.map((item, i) => ({
+      ...item,
+      id: `ai_${Date.now()}_${i}`,
+      createdAt: new Date().toISOString(),
+    }));
+  } catch (error) {
+    console.error('Gemini API error (AIInsights):', error);
+    return fallbackInsights;
+  }
 }
 
 /** POST /emergency — pretends an alert was sent to guardians with live location. */

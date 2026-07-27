@@ -4,6 +4,7 @@ import { FiActivity } from 'react-icons/fi';
 import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
 import { fetchRiskScore } from '../../services/safetyService';
+import { useLiveLocation } from '../../hooks/useLiveLocation';
 import type { RiskScore } from '../../types';
 import { timeAgo } from '../../utils/format';
 
@@ -16,10 +17,11 @@ const levelColor: Record<RiskScore['level'], string> = {
 
 export default function RiskCard() {
   const [risk, setRisk] = useState<RiskScore | null>(null);
+  const { coords } = useLiveLocation();
 
   useEffect(() => {
-    fetchRiskScore().then(setRisk);
-  }, []);
+    fetchRiskScore({ location: coords }).then(setRisk);
+  }, [coords]);
 
   if (!risk) {
     return (
