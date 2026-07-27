@@ -21,7 +21,7 @@ export default function DashboardPage() {
 
   // When distress is detected from dashboard, navigate to emergency page
   const onDistress = useCallback(() => {
-    navigate('/emergency');
+    navigate('/emergency', { state: { autoTrigger: true } });
   }, [navigate]);
 
   const { status: voiceStatus, error: voiceError, startListening, stopListening } =

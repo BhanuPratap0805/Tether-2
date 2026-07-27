@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { FiCheck, FiMapPin, FiMic, FiShield, FiUsers } from 'react-icons/fi';
 import Button from '../../components/common/Button';
 import Card from '../../components/common/Card';
@@ -25,6 +26,7 @@ export default function EmergencyPage() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [alert, setAlert] = useState<AlertRecord | null>(null);
   const [successOpen, setSuccessOpen] = useState(false);
+  const location = useLocation();
 
   const handleTrigger = useCallback(async () => {
     if (phase !== 'idle') return; // prevent double-trigger
@@ -40,6 +42,14 @@ export default function EmergencyPage() {
 
   const { status: voiceStatus, error: voiceError, startListening, stopListening } =
     useVoiceDistressDetection(handleTrigger, true);
+
+  useEffect(() => {
+    if (location.state?.autoTrigger && phase === 'idle') {
+      // Clear the state so it doesn't loop
+      window.history.replaceState({}, document.title);
+      handleTrigger();
+    }
+  }, [location.state?.autoTrigger, phase, handleTrigger]);
 
   const reset = () => {
     setPhase('idle');

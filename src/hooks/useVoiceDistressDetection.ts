@@ -23,7 +23,7 @@ export interface VoiceDistressState {
  * 0.22 targets screams/shouts and ignores ambient speech, music, and car horns.
  * The Speech API is the primary signal; volume is a secondary "pure scream" heuristic.
  */
-const VOLUME_GATE_THRESHOLD = 0.22;
+const VOLUME_GATE_THRESHOLD = 0.15;
 
 /**
  * Minimum milliseconds between consecutive volume-based detections.
@@ -176,7 +176,6 @@ export function useVoiceDistressDetection(
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
-  const recognitionHiRef = useRef<ISpeechRecognition | null>(null); // Hindi instance
   const detectionTimestampsRef = useRef<number[]>([]);
   const cooldownRef = useRef(false);
   const onDistressRef = useRef(onDistressDetected);
@@ -285,17 +284,11 @@ export function useVoiceDistressDetection(
   }, [recordDetection]);
 
   const startSpeechRecognition = useCallback(() => {
-    // English
-    const en = buildRecognition('en-US');
-    if (en) {
-      en.start();
-      recognitionRef.current = en;
-    }
-    // Hindi — catches bachao, chhodo, madad, etc.
-    const hi = buildRecognition('hi-IN');
-    if (hi) {
-      hi.start();
-      recognitionHiRef.current = hi;
+    // en-IN catches both English and transliterated Hindi (bachao, etc.)
+    const recognition = buildRecognition('en-IN');
+    if (recognition) {
+      recognition.start();
+      recognitionRef.current = recognition;
     }
   }, [buildRecognition]);
 
@@ -386,11 +379,6 @@ export function useVoiceDistressDetection(
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch { /* ignore */ }
       recognitionRef.current = null;
-    }
-
-    if (recognitionHiRef.current) {
-      try { recognitionHiRef.current.abort(); } catch { /* ignore */ }
-      recognitionHiRef.current = null;
     }
 
     streamRef.current?.getTracks().forEach((t) => t.stop());
