@@ -101,7 +101,7 @@ export default function LiveMap({ externalPoint = null, height = '420px' }: Live
   if (!coords) return null;
 
   return (
-    <div className="relative rounded-[var(--radius-xl2)] overflow-hidden glass" style={{ height }}>
+    <div className="dusk-map relative rounded-[var(--radius-xl2)] overflow-hidden glass" style={{ height }}>
       <MapContainer
         center={[coords.lat, coords.lng]}
         zoom={16}

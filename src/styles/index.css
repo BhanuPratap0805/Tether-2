@@ -100,7 +100,7 @@
   inset: 0;
   z-index: -1;
   overflow: hidden;
-  background: radial-gradient(120% 90% at 50% -10%, #1B3A52 0%, #0F1E2B 55%, #0A141D 100%);
+  background: radial-gradient(120% 90% at 50% -10%, var(--color-sky-200) 0%, var(--color-sky-400) 55%, var(--color-sky-600) 100%);
 }
 
 .sky-scene::before {
@@ -111,25 +111,6 @@
     radial-gradient(60% 40% at 20% 20%, color-mix(in srgb, var(--color-teal-500) 10%, transparent), transparent 70%),
     radial-gradient(50% 35% at 80% 10%, color-mix(in srgb, var(--color-sky-300) 12%, transparent), transparent 70%);
   opacity: 0.9;
-}
-
-.cloud-layer {
-  position: absolute;
-  top: 0;
-  left: -20%;
-  width: 140%;
-  will-change: transform;
-  opacity: var(--cloud-opacity, 0.35);
-  transform: translate3d(0,0,0);
-  animation: drift var(--cloud-duration, 90s) linear infinite;
-}
-.cloud-layer.layer-1 { top: 6%; --cloud-duration: 130s; --cloud-opacity: 0.22; }
-.cloud-layer.layer-2 { top: 32%; --cloud-duration: 95s; --cloud-opacity: 0.3; animation-direction: reverse; }
-.cloud-layer.layer-3 { top: 58%; --cloud-duration: 150s; --cloud-opacity: 0.16; }
-
-@keyframes drift {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(-33.333%, 0, 0); }
 }
 
 .tether-line {
@@ -148,4 +129,22 @@
 @keyframes sway {
   0%, 100% { transform: rotate(-1.2deg); }
   50% { transform: rotate(1.2deg); }
+}
+
+/* ---- Live map: recolor the bright default OSM tiles to match the dusk/teal Cloudscape atmosphere ---- */
+.dusk-map .leaflet-tile-pane {
+  filter: brightness(0.62) invert(1) contrast(0.9) hue-rotate(180deg) saturate(0.55) brightness(0.92);
+}
+.dusk-map .leaflet-container {
+  background: var(--color-dusk-900);
+}
+.dusk-map::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 350;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% -10%, color-mix(in srgb, var(--color-teal-500) 10%, transparent), transparent 60%),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-dusk-950) 25%, transparent), transparent 30%);
 }
