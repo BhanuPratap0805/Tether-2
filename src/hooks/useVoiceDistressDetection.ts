@@ -109,10 +109,11 @@ const DISTRESS_KEYWORDS = [
 ];
 
 /**
- * How many independent detections (within CONFIRMATION_WINDOW_MS) are required
- * before we treat it as real distress. Prevents single loud words from firing.
+ * How many independent keyword detections are required to trigger the emergency.
+ * Set to 1 for immediate response — the keyword list is specific enough to
+ * avoid false positives without needing a confirmation window.
  */
-const DETECTIONS_REQUIRED = 2;
+const DETECTIONS_REQUIRED = 1;
 const CONFIRMATION_WINDOW_MS = 6_000;
 
 /** How many ms to wait after an emergency fires before re-arming the listener. */
@@ -175,6 +176,7 @@ export function useVoiceDistressDetection(
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  const recognitionHiRef = useRef<ISpeechRecognition | null>(null); // Hindi instance
   const detectionTimestampsRef = useRef<number[]>([]);
   const cooldownRef = useRef(false);
   const onDistressRef = useRef(onDistressDetected);
@@ -224,16 +226,18 @@ export function useVoiceDistressDetection(
     }, REARM_COOLDOWN_MS);
   }, []);
 
-  // ── Speech Recognition (keyword fallback) ────────────────────────────────
+  // ── Speech Recognition ────────────────────────────────────────────────────
+  // Runs TWO parallel instances: one English (en-US), one Hindi (hi-IN).
+  // Both funnel into the same recordDetection() and keyword list.
 
-  const startSpeechRecognition = useCallback(() => {
+  const buildRecognition = useCallback((lang: string): ISpeechRecognition | null => {
     const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor) return; // browser doesn't support it — silent fallback
+    if (!Ctor) return null;
 
     const recognition: ISpeechRecognition = new Ctor();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = lang;
     recognition.maxAlternatives = 3;
 
     recognition.onresult = (rawEvent: Event) => {
@@ -246,10 +250,11 @@ export function useVoiceDistressDetection(
         const result = event.results[i];
         for (let a = 0; a < result.length; a++) {
           const transcript = result[a].transcript.toLowerCase().trim();
-          const matched = DISTRESS_KEYWORDS.some((kw) =>
-            transcript.includes(kw),
-          );
+          // Debug: open DevTools console to see what the mic is picking up
+          console.log(`[Tether Voice | ${lang}] heard: "${transcript}"`);
+          const matched = DISTRESS_KEYWORDS.some((kw) => transcript.includes(kw));
           if (matched) {
+            console.log(`[Tether Voice] DISTRESS KEYWORD MATCHED in "${transcript}"`);
             recordDetection();
             break;
           }
@@ -259,22 +264,40 @@ export function useVoiceDistressDetection(
 
     recognition.onerror = (rawEvent: Event) => {
       const event = rawEvent as unknown as { error: string };
-      // 'no-speech' and 'aborted' are non-critical
       if (event.error === 'not-allowed') {
         setError('Microphone permission denied.');
       }
+      // 'no-speech', 'aborted', 'network' are non-critical
     };
 
     recognition.onend = () => {
-      // Auto-restart unless we intentionally stopped
       if (isListeningRef.current) {
-        try { recognition.start(); } catch { /* ignore if already starting */ }
+        // Small delay prevents "already started" race condition
+        setTimeout(() => {
+          if (isListeningRef.current) {
+            try { recognition.start(); } catch { /* ignore */ }
+          }
+        }, 250);
       }
     };
 
-    recognition.start();
-    recognitionRef.current = recognition;
+    return recognition;
   }, [recordDetection]);
+
+  const startSpeechRecognition = useCallback(() => {
+    // English
+    const en = buildRecognition('en-US');
+    if (en) {
+      en.start();
+      recognitionRef.current = en;
+    }
+    // Hindi — catches bachao, chhodo, madad, etc.
+    const hi = buildRecognition('hi-IN');
+    if (hi) {
+      hi.start();
+      recognitionHiRef.current = hi;
+    }
+  }, [buildRecognition]);
 
   // ── Web Audio volume-gate loop ────────────────────────────────────────────
   //
@@ -363,6 +386,11 @@ export function useVoiceDistressDetection(
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch { /* ignore */ }
       recognitionRef.current = null;
+    }
+
+    if (recognitionHiRef.current) {
+      try { recognitionHiRef.current.abort(); } catch { /* ignore */ }
+      recognitionHiRef.current = null;
     }
 
     streamRef.current?.getTracks().forEach((t) => t.stop());
