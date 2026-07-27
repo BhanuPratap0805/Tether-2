@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FiCloudRain, FiSun } from 'react-icons/fi';
 import Card from '../../components/common/Card';
 import { fetchAIInsights } from '../../services/safetyService';
+import { useLiveLocation } from '../../hooks/useLiveLocation';
 import type { AIInsight } from '../../types';
 
 const toneIcon: Record<AIInsight['tone'], typeof FiSun> = {
@@ -12,10 +13,11 @@ const toneIcon: Record<AIInsight['tone'], typeof FiSun> = {
 
 export default function AIInsights() {
   const [insights, setInsights] = useState<AIInsight[]>([]);
+  const { coords } = useLiveLocation();
 
   useEffect(() => {
-    fetchAIInsights().then(setInsights);
-  }, []);
+    fetchAIInsights({ location: coords }).then(setInsights);
+  }, [coords]);
 
   return (
     <Card>

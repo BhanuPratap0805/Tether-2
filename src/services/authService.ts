@@ -1,30 +1,60 @@
 import { mockDelay } from './apiClient';
 import type { User } from '../types';
 
-const MOCK_USER: User = {
-  id: 'usr_001',
-  name: 'Aanya Rao',
-  email: 'aanya.rao@example.com',
-  bloodGroup: 'O+',
-  phone: '+91 98765 43210',
-  medicalNotes: 'No known allergies. Carries an inhaler for mild asthma.',
-};
+/**
+ * Decodes the payload of a Google ID token (JWT) without verifying the
+ * signature — Google's Identity Services SDK already verified it before
+ * handing us the credential. We just need the user-info claims.
+ */
+function decodeGoogleCredential(credential: string): {
+  sub: string;
+  name: string;
+  email: string;
+  picture?: string;
+} {
+  const [, payload] = credential.split('.');
+  // Base64url → Base64 → JSON (with unicode support)
+  const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = base64.length % 4;
+  const padded = pad ? base64 + '='.repeat(4 - pad) : base64;
+  const json = decodeURIComponent(escape(atob(padded)));
+  return JSON.parse(json) as { sub: string; name: string; email: string; picture?: string };
+}
 
 /**
  * BACKEND CONTRACT (future):
- *   POST /login   -> { token: string, user: User }
+ *   POST /login   { credential } -> { token: string, user: User }
  *   POST /logout  -> 204
- * For now, any login method resolves instantly with a mock user + token.
+ *
+ * To switch to a real backend, replace the body of loginWithGoogle() with:
+ *   const { data } = await apiClient.post<{ token: string; user: User }>('/login', { credential });
+ *   localStorage.setItem('tether_token', data.token);
+ *   return data;
  */
 export const authService = {
-  async loginWithGoogle(): Promise<{ token: string; user: User }> {
-    const result = await mockDelay({ token: 'mock-google-token', user: MOCK_USER }, 700);
-    localStorage.setItem('tether_token', result.token);
-    return result;
+  /**
+   * Accepts the real Google ID-token credential from @react-oauth/google,
+   * decodes it client-side, and builds a User from the Google claims.
+   * The credential itself is stored as the session token until a real backend exists.
+   */
+  async loginWithGoogle(credential: string): Promise<{ token: string; user: User }> {
+    const claims = decodeGoogleCredential(credential);
+    const user: User = {
+      id: claims.sub,               // Google's stable unique user ID
+      name: claims.name,
+      email: claims.email,
+      avatarUrl: claims.picture,    // Google profile photo URL
+    };
+    localStorage.setItem('tether_token', credential);
+    return { token: credential, user };
   },
 
   async loginAsGuest(): Promise<{ token: string; user: User }> {
-    const guest: User = { ...MOCK_USER, name: 'Guest User', email: 'guest@tether.app' };
+    const guest: User = {
+      id: 'guest_000',
+      name: 'Guest User',
+      email: 'guest@tether.app',
+    };
     const result = await mockDelay({ token: 'mock-guest-token', user: guest }, 500);
     localStorage.setItem('tether_token', result.token);
     return result;

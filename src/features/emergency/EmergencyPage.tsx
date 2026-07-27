@@ -1,9 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useState } from 'react';
-import { FiCheck, FiMapPin, FiShield, FiUsers } from 'react-icons/fi';
+import { useState, useCallback } from 'react';
+import { FiCheck, FiMapPin, FiMic, FiShield, FiUsers } from 'react-icons/fi';
 import Button from '../../components/common/Button';
 import Card from '../../components/common/Card';
 import Modal from '../../components/common/Modal';
+import VoiceIndicator from '../../components/emergency/VoiceIndicator';
+import { useVoiceDistressDetection } from '../../hooks/useVoiceDistressDetection';
 import { triggerEmergencyAlert } from '../../services/safetyService';
 import type { AlertRecord, Coordinates } from '../../types';
 import { formatCoord } from '../../utils/format';
@@ -24,7 +26,8 @@ export default function EmergencyPage() {
   const [alert, setAlert] = useState<AlertRecord | null>(null);
   const [successOpen, setSuccessOpen] = useState(false);
 
-  const handleTrigger = async () => {
+  const handleTrigger = useCallback(async () => {
+    if (phase !== 'idle') return; // prevent double-trigger
     setPhase('arming');
     await new Promise((r) => setTimeout(r, 900));
     setPhase('sending');
@@ -33,7 +36,10 @@ export default function EmergencyPage() {
     setAlert(record);
     setPhase('sent');
     setSuccessOpen(true);
-  };
+  }, [phase]);
+
+  const { status: voiceStatus, error: voiceError, startListening, stopListening } =
+    useVoiceDistressDetection(handleTrigger, true);
 
   const reset = () => {
     setPhase('idle');
@@ -83,6 +89,20 @@ export default function EmergencyPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Voice Distress Detection ── */}
+      <div className="w-full mt-2">
+        <div className="flex items-center gap-2 text-sky-300/70 text-xs uppercase tracking-wide mb-3">
+          <FiMic size={11} />
+          <span>Voice Distress Detection</span>
+        </div>
+        <VoiceIndicator
+          status={voiceStatus}
+          error={voiceError}
+          onStart={startListening}
+          onStop={stopListening}
+        />
+      </div>
 
       {phase === 'sent' && alert && (
         <Button variant="secondary" className="mt-8" onClick={reset}>

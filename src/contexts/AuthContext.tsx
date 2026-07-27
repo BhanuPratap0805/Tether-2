@@ -7,7 +7,7 @@ interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  loginWithGoogle: () => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   loginAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (patch: Partial<User>) => Promise<void>;
@@ -32,10 +32,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (credential: string) => {
     setIsLoading(true);
     try {
-      const { user: loggedIn } = await authService.loginWithGoogle();
+      const { user: loggedIn } = await authService.loginWithGoogle(credential);
       setUser(loggedIn);
     } finally {
       setIsLoading(false);
@@ -65,7 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({ user, isAuthenticated: !!user, isLoading, loginWithGoogle, loginAsGuest, logout, updateProfile }),
-    [user, isLoading],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, isLoading], 
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

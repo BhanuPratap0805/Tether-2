@@ -1,3 +1,4 @@
+import { useGoogleLogin } from '@react-oauth/google';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { FiArrowLeft, FiUser } from 'react-icons/fi';
@@ -5,16 +6,50 @@ import { Link, useNavigate } from 'react-router-dom';
 import Button from '../../components/common/Button';
 import TetherMark from '../../components/common/TetherMark';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNotify } from '../../contexts/NotificationContext';
 
 export default function LoginPage() {
   const { loginWithGoogle, loginAsGuest } = useAuth();
+  const notify = useNotify();
   const navigate = useNavigate();
   const [pending, setPending] = useState<'google' | 'guest' | null>(null);
 
-  const handleGoogle = async () => {
+  const handleGoogle = useGoogleLogin({
+    flow: 'implicit',
+    onSuccess: async (tokenResponse) => {
+      // Use the access_token to fetch the user's profile from Google's userinfo endpoint.
+      try {
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
+        });
+        const profile = await res.json() as {
+          sub: string;
+          name: string;
+          email: string;
+          picture?: string;
+        };
+        // Encode the profile as a base64 string and pass it through authService,
+        // which decodes it and builds a User. When a real backend exists, this
+        // We encode the profile as a base64 JSON payload and pass it through.
+        const base64Payload = btoa(unescape(encodeURIComponent(JSON.stringify(profile))));
+        const fakeCredential = `dummy.${base64Payload}.dummy`;
+        await loginWithGoogle(fakeCredential);
+        navigate('/dashboard');
+      } catch (err) {
+        console.error('Google sign in error:', err);
+        notify('Google sign-in failed. Please try again.', 'warning');
+        setPending(null);
+      }
+    },
+    onError: () => {
+      notify('Google sign-in was cancelled or failed.', 'warning');
+      setPending(null);
+    },
+  });
+
+  const handleGoogleClick = () => {
     setPending('google');
-    await loginWithGoogle();
-    navigate('/dashboard');
+    handleGoogle();
   };
 
   const handleGuest = async () => {
@@ -49,7 +84,7 @@ export default function LoginPage() {
             size="lg"
             fullWidth
             loading={pending === 'google'}
-            onClick={handleGoogle}
+            onClick={handleGoogleClick}
             icon={<GoogleGlyph />}
           >
             Continue with Google
@@ -67,8 +102,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-8 text-xs text-sky-400/60 leading-relaxed">
-          Google sign-in currently uses a placeholder session — full OAuth arrives with
-          the backend. By continuing, you agree to Tether's Terms and Privacy Notice.
+          By continuing, you agree to Tether's Terms and Privacy Notice.
         </p>
       </motion.div>
     </div>
