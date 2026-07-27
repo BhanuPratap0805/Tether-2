@@ -1,9 +1,9 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import Groq from 'groq-sdk';
 import { mockDelay } from './apiClient';
 import type { AIInsight, AlertRecord, Coordinates, RiskScore, SafePlace, TimelineEvent } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || 'fake' });
-const hasApiKey = Boolean(import.meta.env.VITE_GEMINI_API_KEY);
+const groq = new Groq({ apiKey: import.meta.env.VITE_GROQ_API_KEY || 'fake', dangerouslyAllowBrowser: true });
+const hasApiKey = Boolean(import.meta.env.VITE_GROQ_API_KEY);
 
 export interface RiskContext {
   location?: Coordinates;
@@ -26,55 +26,43 @@ export async function fetchRiskScore(contextData: RiskContext = {}): Promise<Ris
   if (!hasApiKey) return fallbackScore;
 
   try {
-    // 1. Enrich the context for the AI
-    const enrichedContext = {
-      current_time: contextData.timeOfDay || new Date().toLocaleTimeString(),
-      location_coords: contextData.location || 'Unknown',
-      movement_speed_kmh: contextData.currentSpeed ?? 0,
-      on_usual_route: contextData.isOnUsualRoute ?? true,
-      recent_sudden_stops: contextData.recentStops ?? 0,
-      device_battery_percent: contextData.batteryLevel ?? 100,
-    };
 
     // 2. The "Judge-Winning" Prompt
-    const prompt = `You are Tether, an elite AI Personal Safety Analyst. Your job is to evaluate the real-time risk level of a user walking alone.
-    
-    Analyze the following real-time telemetry:
-    ${JSON.stringify(enrichedContext, null, 2)}
+    const prompt = `You are an expert personal safety AI analyst. Your job is to assess the real-world risk level of a user based on contextual telemetry.
 
-    Rules for scoring:
-    - If it is late at night (after 9 PM) AND they are not on their usual route, risk is ELEVATED or HIGH.
-    - If they have had multiple sudden stops (recent_sudden_stops > 2), risk increases.
-    - If speed is 0 for a long time in an unknown area, risk increases.
-    - If battery is critically low (< 10%), factor that into the "factors" list as a vulnerability.
+### RULES FOR ASSESSMENT:
+1. TIME CONTEXT: 10 PM - 5 AM is inherently higher risk than daytime, UNLESS the context indicates a known 24/7 safe zone (e.g., major hospital, 24/7 transit hub, police station).
+2. MOVEMENT CONTEXT: Steady movement is low risk. Sudden stops, erratic speed changes, or moving into isolated/unmapped areas increase risk.
+3. LOCATION CONTEXT: If coordinates are provided, use your general knowledge of the area (if recognizable) to assess isolation. If unknown, base the risk purely on time and movement patterns.
+4. DO NOT HALLUCINATE: Do not invent weather conditions, lighting, or specific events unless explicitly provided in the "Telemetry" context. Be grounded and realistic.
 
-    Generate a JSON response with:
-    1. score (0-100)
-    2. level ('low', 'moderate', 'elevated', 'high')
-    3. factors (2-3 specific, actionable reasons based EXACTLY on the telemetry provided. Do not hallucinate generic factors like "Well-lit route" if you don't know the lighting).`;
+### CONTEXT DATA:
+- Time: ${new Date().toLocaleTimeString()}
+- Location: ${JSON.stringify(contextData?.location || 'Unknown')}
+- Telemetry: ${JSON.stringify(contextData || {})}
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            score: { type: Type.INTEGER, description: '0 to 100 representing danger level' },
-            level: { type: Type.STRING, enum: ['low', 'moderate', 'elevated', 'high'] },
-            factors: { type: Type.ARRAY, items: { type: Type.STRING }, description: '2 to 3 factors explaining the score' },
-          },
-          required: ['score', 'level', 'factors'],
-        },
-      },
+### OUTPUT FORMAT:
+Return ONLY valid JSON matching this schema:
+{
+  "score": <integer 0-100>,
+  "level": "<low | moderate | elevated | high>",
+  "factors": ["<concise, realistic reason 1>", "<concise, realistic reason 2>"]
+}
+Ensure the 'level' strictly matches the 'score' (0-25: low, 26-50: moderate, 51-75: elevated, 76-100: high).`;
+
+    const response = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+      temperature: 0.1, // Keep it deterministic
     });
 
-    if (!response.text) return fallbackScore;
-    const parsed = JSON.parse(response.text);
+    const content = response.choices[0]?.message?.content;
+    if (!content) return fallbackScore;
+    const parsed = JSON.parse(content);
     return { ...parsed, updatedAt: new Date().toISOString() };
   } catch (error) {
-    console.error('Gemini API error (RiskScore):', error);
+    console.error('Groq API error (RiskScore):', error);
     return fallbackScore;
   }
 }
@@ -121,36 +109,31 @@ export async function fetchAIInsights(contextData?: Record<string, any>): Promis
 Context:
 Time: ${new Date().toLocaleTimeString()}
 Location (if any): ${JSON.stringify(contextData?.location || 'Unknown')}
-Other: ${JSON.stringify(contextData || {})}`;
+Other: ${JSON.stringify(contextData || {})}
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              tone: { type: Type.STRING, enum: ['reassuring', 'advisory', 'urgent'] },
-              message: { type: Type.STRING, description: 'A short 1-2 sentence personalized insight' },
-            },
-            required: ['tone', 'message'],
-          },
-        },
-      },
+Return ONLY a JSON object with a single "insights" array. Each item must have:
+- "tone": either "reassuring", "advisory", or "urgent"
+- "message": A short 1-2 sentence personalized insight
+Example: { "insights": [{ "tone": "advisory", "message": "..." }] }`;
+
+    const response = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+      temperature: 0.7,
     });
 
-    if (!response.text) return fallbackInsights;
-    const parsed = JSON.parse(response.text) as Omit<AIInsight, 'id' | 'createdAt'>[];
-    return parsed.map((item, i) => ({
+    const content = response.choices[0]?.message?.content;
+    if (!content) return fallbackInsights;
+    const parsed = JSON.parse(content) as { insights: Omit<AIInsight, 'id' | 'createdAt'>[] };
+    
+    return parsed.insights.map((item, i) => ({
       ...item,
       id: `ai_${Date.now()}_${i}`,
       createdAt: new Date().toISOString(),
     }));
   } catch (error) {
-    console.error('Gemini API error (AIInsights):', error);
+    console.error('Groq API error (AIInsights):', error);
     return fallbackInsights;
   }
 }

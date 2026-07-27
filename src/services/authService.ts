@@ -15,7 +15,9 @@ function decodeGoogleCredential(credential: string): {
   const [, payload] = credential.split('.');
   // Base64url → Base64 → JSON (with unicode support)
   const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-  const json = decodeURIComponent(escape(atob(base64)));
+  const pad = base64.length % 4;
+  const padded = pad ? base64 + '='.repeat(4 - pad) : base64;
+  const json = decodeURIComponent(escape(atob(padded)));
   return JSON.parse(json) as { sub: string; name: string; email: string; picture?: string };
 }
 

@@ -65,7 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({ user, isAuthenticated: !!user, isLoading, loginWithGoogle, loginAsGuest, logout, updateProfile }),
-    [user, isLoading],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, isLoading], 
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
