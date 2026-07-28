@@ -1,5 +1,6 @@
 import Groq from 'groq-sdk';
 import { mockDelay } from './apiClient';
+import { fetchCurrentWeather, type WeatherData } from './weatherService';
 import type { AIInsight, AlertRecord, Coordinates, RiskScore, SafePlace, TimelineEvent } from '../types';
 
 const groq = new Groq({ apiKey: import.meta.env.VITE_GROQ_API_KEY || 'fake', dangerouslyAllowBrowser: true });
@@ -12,6 +13,7 @@ export interface RiskContext {
   isOnUsualRoute?: boolean;
   batteryLevel?: number;
   recentStops?: number; // sudden stops detected
+  weather?: WeatherData;
 }
 
 /** GET /risk */
@@ -19,26 +21,31 @@ export async function fetchRiskScore(contextData: RiskContext = {}): Promise<Ris
   const fallbackScore: RiskScore = {
     score: 50,
     level: 'moderate',
-    factors: ['AI Prediction Unavailable', 'Please check Gemini API Key'],
+    factors: ['AI Prediction Unavailable', 'Please check Groq API Key'],
     updatedAt: new Date().toISOString(),
   };
 
   if (!hasApiKey) return fallbackScore;
 
   try {
+    const lat = contextData.location?.lat ?? 28.4595;
+    const lng = contextData.location?.lng ?? 77.0266;
+    const weather = contextData.weather ?? (await fetchCurrentWeather(lat, lng));
 
-    // 2. The "Judge-Winning" Prompt
-    const prompt = `You are an expert personal safety AI analyst. Your job is to assess the real-world risk level of a user based on contextual telemetry.
+    // The "Judge-Winning" Prompt
+    const prompt = `You are an expert personal safety AI analyst. Your job is to assess the real-world risk level of a user based on contextual telemetry and live environmental weather.
 
 ### RULES FOR ASSESSMENT:
-1. TIME CONTEXT: 10 PM - 5 AM is inherently higher risk than daytime, UNLESS the context indicates a known 24/7 safe zone (e.g., major hospital, 24/7 transit hub, police station).
+1. TIME CONTEXT: 10 PM - 5 AM is inherently higher risk than daytime, UNLESS the context indicates a known 24/7 safe zone (e.g., major hospital, police station).
 2. MOVEMENT CONTEXT: Steady movement is low risk. Sudden stops, erratic speed changes, or moving into isolated/unmapped areas increase risk.
-3. LOCATION CONTEXT: If coordinates are provided, use your general knowledge of the area (if recognizable) to assess isolation. If unknown, base the risk purely on time and movement patterns.
-4. DO NOT HALLUCINATE: Do not invent weather conditions, lighting, or specific events unless explicitly provided in the "Telemetry" context. Be grounded and realistic.
+3. LOCATION CONTEXT: If coordinates are provided, use your general knowledge of the area to assess isolation.
+4. LIVE WEATHER & ENVIRONMENT CONTEXT: Live weather is provided below. If it is currently raining, heavy rain, or storming, take weather hazards into account (slippery roads, reduced visibility, advice to stay indoors or seek shelter).
+5. GROUNDED REALISM: Do NOT invent sunny or heat-wave weather if the live weather indicates rain. Be accurate to the provided live weather.
 
 ### CONTEXT DATA:
 - Time: ${new Date().toLocaleTimeString()}
-- Location: ${JSON.stringify(contextData?.location || 'Unknown')}
+- Location: ${JSON.stringify(contextData?.location || { lat, lng })}
+- Live Weather: ${weather.summary} (Condition: ${weather.condition}, Is Raining: ${weather.isRaining}, Precip: ${weather.precipitation}mm)
 - Telemetry: ${JSON.stringify(contextData || {})}
 
 ### OUTPUT FORMAT:
@@ -72,10 +79,10 @@ export async function fetchTimeline(): Promise<TimelineEvent[]> {
   const now = Date.now();
   return mockDelay(
     [
-      { id: 't1', type: 'system', title: 'Tether activated', description: 'Live protection turned on for your evening commute.', timestamp: new Date(now - 1000 * 60 * 62).toISOString() },
-      { id: 't2', type: 'location', title: 'Location checkpoint', description: 'Arrived near Cyber Hub, Gurugram — matches your usual route.', timestamp: new Date(now - 1000 * 60 * 48).toISOString() },
-      { id: 't3', type: 'ai', title: 'AI check-in', description: 'Walking pace and route look consistent with past trips. No action needed.', timestamp: new Date(now - 1000 * 60 * 30).toISOString() },
-      { id: 't4', type: 'guardian', title: 'Guardian notified', description: 'Meera Nair received your scheduled check-in update.', timestamp: new Date(now - 1000 * 60 * 12).toISOString() },
+      { id: 't1', type: 'system', title: 'Tether activated', description: 'Live protection turned on for your commute.', timestamp: new Date(now - 1000 * 60 * 62).toISOString() },
+      { id: 't2', type: 'location', title: 'Location checkpoint', description: 'Location verified — matches your usual route.', timestamp: new Date(now - 1000 * 60 * 48).toISOString() },
+      { id: 't3', type: 'ai', title: 'AI check-in', description: 'Walking pace and weather safety look consistent. No action needed.', timestamp: new Date(now - 1000 * 60 * 30).toISOString() },
+      { id: 't4', type: 'guardian', title: 'Guardian notified', description: 'Scheduled check-in update sent to your primary guardian.', timestamp: new Date(now - 1000 * 60 * 12).toISOString() },
     ],
     600,
   );
@@ -99,22 +106,32 @@ export async function fetchSafePlaces(origin?: Coordinates): Promise<SafePlace[]
 /** Rotating reassuring / advisory AI insights shown on the dashboard. */
 export async function fetchAIInsights(contextData?: Record<string, any>): Promise<AIInsight[]> {
   const fallbackInsights: AIInsight[] = [
-    { id: 'ai_err_1', tone: 'urgent', message: 'AI insights are currently unavailable. Please check your Gemini API connection.', createdAt: new Date().toISOString() },
+    { id: 'ai_err_1', tone: 'urgent', message: 'AI insights are currently unavailable. Please check your Groq API connection.', createdAt: new Date().toISOString() },
   ];
 
   if (!hasApiKey) return fallbackInsights;
 
   try {
-    const prompt = `You are a personal safety AI. Generate 2 personalized safety insights for a user based on their context. Make one reassuring and one advisory.
+    const lat = contextData?.location?.lat ?? 28.4595;
+    const lng = contextData?.location?.lng ?? 77.0266;
+    const weather = contextData?.weather ?? (await fetchCurrentWeather(lat, lng));
+
+    const prompt = `You are a personal safety AI assistant. Generate 2 personalized safety insights for a user based on their context and current live weather.
 Context:
-Time: ${new Date().toLocaleTimeString()}
-Location (if any): ${JSON.stringify(contextData?.location || 'Unknown')}
-Other: ${JSON.stringify(contextData || {})}
+- Time: ${new Date().toLocaleTimeString()}
+- Location (if any): ${JSON.stringify(contextData?.location || { lat, lng })}
+- Live Weather: ${weather.summary} (Condition: ${weather.condition}, Is Raining: ${weather.isRaining}, Precipitation: ${weather.precipitation}mm)
+- Telemetry: ${JSON.stringify(contextData || {})}
+
+CRITICAL WEATHER DIRECTIVE:
+- IF IT IS RAINING OR STORMIING (Is Raining = true or Precipitation > 0 or condition contains Rain/Drizzle/Shower/Thunderstorm):
+  At least ONE of your insights MUST be a rain/weather safety advisory (e.g. advise staying indoors, taking shelter, caution on slippery/flooded roads). DO NOT advise staying hydrated outdoors at noon for heat exhaustion if it is raining!
+- IF IT IS NOT RAINING: Give a relevant time/location safety insight.
 
 Return ONLY a JSON object with a single "insights" array. Each item must have:
 - "tone": either "reassuring", "advisory", or "urgent"
 - "message": A short 1-2 sentence personalized insight
-Example: { "insights": [{ "tone": "advisory", "message": "..." }] }`;
+Example: { "insights": [{ "tone": "advisory", "message": "Heavy rain is occurring in your area. Stay indoors or carry an umbrella if traveling." }] }`;
 
     const response = await groq.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
